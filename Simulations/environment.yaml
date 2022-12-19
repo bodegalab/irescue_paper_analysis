@@ -1,0 +1,8 @@
+name: irescue_sims
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::samtools=1.12
+  - bioconda::gffread=0.12.7
+  - bioconda::bwa=0.7.17

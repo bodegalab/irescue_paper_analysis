@@ -1,0 +1,101 @@
+#!/bin/bash
+## Description: bash/awk script to convert RepeatMasker output into bed or gtf
+## For details, run:  ./rmsk2bed -h
+
+# default params
+outformat="bed"
+TEfilter=0
+
+# parse arguments
+while getopts ":f:th" opt; do
+  case $opt in
+    h)
+      echo 'Usage: zcat hg38.fa.out.gz | ./rmsk2bed [-f bed,gtf] [-th]
+
+  rmsk2bed version: 20210507
+           author: Benedetto Polimeni (polimeni@ingm.org)
+
+  Repeatmasker open-4.0.3-20130422 for hg38 asssembly can be downloaded from here:
+  http://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.out.gz
+
+  -h  Display this message and exit.
+  -f  [bed,gtf] Output format. Default: bed.
+  -t  Removes repeats classes that could interfere with RNA-Seq analysis:
+      Low_complexity, Simple_repeat, rRNA, scRNA, srpRNA, tRNA.
+      Default: False.'
+      exit 0
+      ;;  
+    f)
+      outformat="$OPTARG"
+      ;;
+    t)
+      TEfilter=1
+      ;;
+    \?)
+      echo "Invalid option -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+  esac
+done
+
+gawk -v OFS="\t" -v outformat=$outformat -v TEfilter=$TEfilter 'BEGIN {
+
+  # print bed header
+  if (outformat=="bed") {
+    print "#chr\tstart\tend\trepName\tSWscore\tstrand\trepSubfamily\trepFamily\trepClass\tmilliDiv\tmilliDel\tmilliIns\trepStart\trepEnd\trepLeft\trepInstance"
+  }
+
+} NR>3 {
+
+  sw_score=$1
+  millidiv=$2
+  millidel=$3
+  milliins=$4
+  chr=$5
+  start=$6-1
+  end=$7
+  strand=($9=="+" ? "+" : "-")
+  subfam=$10
+  repstart=(strand=="+" ? $12 : $14)
+  if (repstart ~/\(/) {
+    # remove parenthesis from repeat starting coordinate in consensus
+    gsub(/[\(\)]/,"",repstart)
+  }
+  repstart-=1
+  repend=$13
+  repleft=(strand=="+" ? $14 : $12)
+  if (repleft ~/\(/) {
+    # remove parenthesis from consensus left bases
+    gsub(/[\(\)]/,"",repleft)
+  }
+  instance=$15
+
+  # get family and class from 11th column
+  if ($11~/\//) {
+    split($11,fam,"/")
+    class = fam[1]
+    family = fam[2]
+  } else {
+    class = $11
+    family = $11
+  }
+
+  if (TEfilter==1 && (class~/^(Low_complexity|Simple_repeat|rRNA|scRNA|srpRNA|tRNA)$/)) {
+    next
+  }
+
+  # assign unique ID to individual loci
+  sfarr[subfam]+=1
+  repname=subfam"_l"sfarr[subfam]
+
+  if (outformat=="bed") {
+    print chr,start,end,repname,sw_score,strand,subfam,family,class,millidiv,millidel,milliins,repstart,repend,repleft,instance
+  } else if (outformat=="gtf") {
+    print chr,"hg38_rmsk","exon",start+1,end,sw_score,strand,".","gene_id \""subfam"\"; transcript_id \""repname"\"; family_id \""family"\"; class_id \""class"\";"
+  }
+
+}'
+
